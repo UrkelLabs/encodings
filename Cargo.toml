@@ -7,3 +7,4 @@ license = "MIT"
 description = "A crate containing common encoding styles"
 
 [dependencies]
+chrono = "0.4"
