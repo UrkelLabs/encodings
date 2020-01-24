@@ -1,6 +1,6 @@
 [package]
 name = "encodings"
-version = "0.0.0"
+version = "0.0.1"
 authors = ["Urkel Labs Engineering <engineering@urkellabs.com>"]
 edition = "2018"
 license = "MIT"
