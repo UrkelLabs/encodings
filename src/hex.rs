@@ -1,7 +1,4 @@
 // Copyright (c) 2013-2019 The Rust Project Developers.
-pub use self::FromHexError::*;
-
-use std::error;
 use std::fmt;
 
 /// A trait for converting a value to hexadecimal encoding
@@ -28,69 +25,71 @@ impl ToHex for [u8] {
     }
 }
 
-/// A trait for converting hexadecimal encoded values
-pub trait FromHex {
-    /// Converts the value of `self`, interpreted as hexadecimal encoded data,
-    /// into an owned vector of bytes, returning the vector.
-    fn from_hex(&self) -> Result<Vec<u8>, FromHexError>;
+pub trait FromHex: Sized {
+    type Error;
+
+    fn from_hex<T: AsRef<[u8]>>(hex: T) -> Result<Self, Self::Error>;
 }
 
 /// Errors that can occur when decoding a hex encoded string
 #[derive(Copy, Clone, Debug)]
 pub enum FromHexError {
     /// The input contained a character not part of the hex format
-    InvalidHexCharacter(char, usize),
+    InvalidHexCharacter {
+        c: char,
+        index: usize,
+    },
     /// The input had an invalid length
     InvalidHexLength,
+    OddLength,
 }
 
-impl fmt::Display for FromHexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::error::Error for FromHexError {
+    fn description(&self) -> &str {
         match *self {
-            InvalidHexCharacter(ch, idx) => {
-                write!(f, "Invalid character '{}' at position {}", ch, idx)
-            }
-            InvalidHexLength => write!(f, "Invalid input length"),
+            Self::InvalidHexCharacter { .. } => "invalid character",
+            Self::OddLength => "odd number of digits",
+            Self::InvalidHexLength => "invalid hex length",
         }
     }
 }
 
-impl error::Error for FromHexError {}
-
-impl FromHex for str {
-    fn from_hex(&self) -> Result<Vec<u8>, FromHexError> {
-        // This may be an overestimate if there is any whitespace
-        let mut b = Vec::with_capacity(self.len() / 2);
-        let mut modulus = 0;
-        let mut buf = 0;
-
-        for (idx, byte) in self.bytes().enumerate() {
-            buf <<= 4;
-
-            match byte {
-                b'A'..=b'F' => buf |= byte - b'A' + 10,
-                b'a'..=b'f' => buf |= byte - b'a' + 10,
-                b'0'..=b'9' => buf |= byte - b'0',
-                b' ' | b'\r' | b'\n' | b'\t' => {
-                    buf >>= 4;
-                    continue;
-                }
-                _ => {
-                    let ch = self[idx..].chars().next().unwrap();
-                    return Err(InvalidHexCharacter(ch, idx));
-                }
+impl fmt::Display for FromHexError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Self::InvalidHexCharacter { c, index } => {
+                write!(f, "Invalid character '{}' at position {}", c, index)
             }
+            Self::OddLength => write!(f, "Odd number of digits"),
+            Self::InvalidHexLength => write!(f, "Invalid hex length"),
+        }
+    }
+}
 
-            modulus += 1;
-            if modulus == 2 {
-                modulus = 0;
-                b.push(buf);
-            }
+fn val(c: u8, idx: usize) -> Result<u8, FromHexError> {
+    match c {
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        b'0'..=b'9' => Ok(c - b'0'),
+        _ => Err(FromHexError::InvalidHexCharacter {
+            c: c as char,
+            index: idx,
+        }),
+    }
+}
+
+impl FromHex for Vec<u8> {
+    type Error = FromHexError;
+
+    fn from_hex<T: AsRef<[u8]>>(hex: T) -> Result<Self, FromHexError> {
+        let hex = hex.as_ref();
+        if hex.len() % 2 != 0 {
+            return Err(FromHexError::OddLength);
         }
 
-        match modulus {
-            0 => Ok(b),
-            _ => Err(InvalidHexLength),
-        }
+        hex.chunks(2)
+            .enumerate()
+            .map(|(i, pair)| Ok(val(pair[0], 2 * i)? << 4 | val(pair[1], 2 * i + 1)?))
+            .collect()
     }
 }
